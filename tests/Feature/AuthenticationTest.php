@@ -16,6 +16,7 @@ class AuthenticationTest extends TestCase
     {
         return [
             'list events' => ['get', '/api/events'],
+            'book a seat' => ['post', '/api/events/1/bookings'],
         ];
     }
 
