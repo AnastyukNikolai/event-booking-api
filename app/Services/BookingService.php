@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\BookingStatus;
 use App\Exceptions\EventAlreadyStartedException;
 use App\Exceptions\EventFullException;
+use App\Jobs\SendBookingConfirmation;
 use App\Models\Booking;
 use App\Models\Event;
 use App\Models\User;
@@ -35,6 +36,8 @@ class BookingService
                     'event_id' => $event->id,
                     'status' => BookingStatus::Active,
                 ]);
+
+                SendBookingConfirmation::dispatch($booking)->afterCommit();
             }
 
             return $booking->setRelation('event', $event);
