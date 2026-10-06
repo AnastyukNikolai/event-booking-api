@@ -69,7 +69,7 @@ Booking and cancellation run in a transaction that first locks the event row (`S
 
 ## Known limitations
 
-- The Docker setup is for development only (bind mount, PHP-FPM runs as root for Windows/WSL file permissions).
+- The Docker setup is for development only (bind mount, PHP-FPM runs as root).
 - Tokens do not expire and can only be issued with the Artisan command.
 - Fixed page size and no rate limiting.
 - Emails are written to the log only (set `MAIL_*` for a real SMTP server).
