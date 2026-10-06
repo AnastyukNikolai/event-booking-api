@@ -5,22 +5,31 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class AuthenticationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_api_requires_authentication(): void
+    public static function protectedEndpoints(): array
     {
-        $this->getJson('/api/user')
+        return [
+            'list events' => ['get', '/api/events'],
+        ];
+    }
+
+    #[DataProvider('protectedEndpoints')]
+    public function test_endpoint_requires_authentication(string $method, string $uri): void
+    {
+        $this->json($method, $uri)
             ->assertUnauthorized()
             ->assertJson(['message' => 'Unauthenticated.']);
     }
 
     public function test_api_returns_json_401_even_without_accept_header(): void
     {
-        $this->get('/api/user')
+        $this->get('/api/events')
             ->assertUnauthorized()
             ->assertJson(['message' => 'Unauthenticated.']);
     }
@@ -28,7 +37,7 @@ class AuthenticationTest extends TestCase
     public function test_invalid_token_is_rejected(): void
     {
         $this->withToken('invalid-token')
-            ->getJson('/api/user')
+            ->getJson('/api/events')
             ->assertUnauthorized();
     }
 
@@ -43,9 +52,8 @@ class AuthenticationTest extends TestCase
         $this->assertCount(1, $user->tokens);
 
         $this->withToken($token)
-            ->getJson('/api/user')
-            ->assertOk()
-            ->assertJsonPath('id', $user->id);
+            ->getJson('/api/events')
+            ->assertOk();
     }
 
     public function test_issue_token_command_fails_for_unknown_user(): void
