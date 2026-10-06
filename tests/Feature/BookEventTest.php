@@ -111,7 +111,9 @@ class BookEventTest extends TestCase
 
     public function test_booking_a_missing_event_returns_not_found(): void
     {
-        $this->postJson('/api/events/999999/bookings')->assertNotFound();
+        $this->postJson('/api/events/999999/bookings')
+            ->assertNotFound()
+            ->assertExactJson(['message' => 'Not Found.']);
     }
 
     public function test_repeated_booking_returns_existing_active_booking(): void

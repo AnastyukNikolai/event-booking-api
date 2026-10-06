@@ -7,9 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('bookings', function (Blueprint $table) {
@@ -27,9 +24,6 @@ return new class extends Migration
         DB::statement("CREATE UNIQUE INDEX bookings_user_event_active_unique ON bookings (user_id, event_id) WHERE status = 'active'");
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('bookings');

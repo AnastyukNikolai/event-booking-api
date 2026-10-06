@@ -1,58 +1,79 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Event Booking API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+**Stack:** Laravel 13 · PHP 8.4 · PostgreSQL 18 · Nginx 1.30 · Sanctum · database queue · PHPUnit · Docker Compose
 
-## About Laravel
-
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
-
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Run
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+cp .env.example .env
+docker compose up -d --build
+docker compose exec app composer install
+docker compose exec app php artisan key:generate
+docker compose exec app php artisan migrate --seed
+docker compose restart queue    # the worker needs vendor/ and the jobs table
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+API: **http://localhost:8080/api** (port: `APP_PORT`). Services: `app` (PHP-FPM), `queue` (worker), `nginx`, `db` (databases `event_booking` and `testing`).
 
-## Contributing
+## Test data and tokens
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+The seeder creates users `alice@example.com`, `bob@example.com`, `charlie@example.com` (password `password`) and events covering all cases: a free event, a full one (`Single Seat Masterclass`), one with a cancelled booking, a past one and 20 random events for pagination. Reset with `php artisan migrate:fresh --seed`.
 
-## Code of Conduct
+```bash
+docker compose exec app php artisan app:issue-token alice@example.com
+curl -H "Authorization: Bearer <token>" -H "Accept: application/json" http://localhost:8080/api/events
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Endpoints
 
-## Security Vulnerabilities
+All endpoints require a token (`401` otherwise). Dates are stored and returned in UTC (ISO 8601). Lists are paginated, 15 items per page.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+| Method | Endpoint | Responses |
+|---|---|---|
+| `GET` | `/api/events` | `200` upcoming events with `available_seats` |
+| `POST` | `/api/events/{event}/bookings` | `201` created · `200` existing active booking · `404` · `409` full or started |
+| `GET` | `/api/bookings` | `200` own bookings, active and cancelled |
+| `DELETE` | `/api/bookings/{booking}` | `204` cancelled or already cancelled · `403` not yours · `404` · `409` active and event started |
 
-## License
+## Queue and emails
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+The worker runs in the `queue` container (`queue:work --tries=3 --timeout=60`). The job has 3 tries, 10 s / 60 s backoff and a 30 s timeout (below `retry_after` = 90 s). Failed jobs go to `failed_jobs`.
+
+```bash
+docker compose logs -f queue                                              # watch jobs
+docker compose exec app php artisan queue:work --tries=3 --timeout=60     # manual worker, after `docker compose stop queue`
+docker compose exec app sh -c 'tail -n 60 storage/logs/laravel-*.log'     # emails (log mailer, daily log files)
+```
+
+The email contains the event name, the start time (UTC) and the booking ID.
+
+## Tests
+
+```bash
+docker compose exec app php artisan test
+```
+
+Tests run on a separate PostgreSQL database `testing` (the solution relies on a partial unique index and `SELECT ... FOR UPDATE`). No real emails are sent: `Mail::fake()`, `Queue::fake()` and the `array` mailer are used. `ConcurrentBookingTest` starts real parallel processes and takes about 25 s.
+
+## Design decisions
+
+- Thin controllers. State changes live in `BookingService` / `BookingCancellationService`, read queries in `EventQuery` / `BookingQuery`.
+- `available_seats` is not stored. It is calculated as `capacity - active bookings` (`withCount`), so there is no counter to get out of sync.
+- Cancellation sets `status = cancelled` and `cancelled_at`. History is kept, and rebooking creates a new row.
+- Database constraints: partial unique index `(user_id, event_id) WHERE status = 'active'`, `CHECK` on capacity and status, foreign keys without cascade delete.
+- `409` errors are exceptions extending `ConflictHttpException`. `403` comes from `BookingPolicy`, `404` from route model binding (`{"message": "Not Found."}`). `201` vs `200` is decided by `wasRecentlyCreated`.
+
+## Concurrency
+
+Booking and cancellation run in a transaction that first locks the event row (`SELECT ... FOR UPDATE`). All writes for one event are serialized, so two requests cannot both take the last seat. Different events do not block each other. Both operations take the same lock first, so they cannot deadlock. Cancellation re-reads the booking after locking, so repeated cancellations release the seat only once. The partial unique index is a second line of defence against duplicate active bookings. The email job is dispatched `afterCommit()`, and the worker reloads the booking and skips the email if it has been cancelled.
+
+## Known limitations
+
+- The Docker setup is for development only (bind mount, PHP-FPM runs as root for Windows/WSL file permissions).
+- Tokens do not expire and can only be issued with the Artisan command.
+- Fixed page size and no rate limiting.
+- Emails are written to the log only (set `MAIL_*` for a real SMTP server).
+
+## Time spent
+
+About 3.5 hours. All requirements are implemented.

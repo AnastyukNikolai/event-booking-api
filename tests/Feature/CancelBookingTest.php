@@ -81,7 +81,9 @@ class CancelBookingTest extends TestCase
 
     public function test_cancelling_a_missing_booking_returns_not_found(): void
     {
-        $this->deleteJson('/api/bookings/999999')->assertNotFound();
+        $this->deleteJson('/api/bookings/999999')
+            ->assertNotFound()
+            ->assertExactJson(['message' => 'Not Found.']);
     }
 
     public function test_active_booking_cannot_be_cancelled_after_event_starts(): void

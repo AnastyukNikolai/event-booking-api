@@ -7,9 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('events', function (Blueprint $table) {
@@ -23,9 +20,6 @@ return new class extends Migration
         DB::statement('ALTER TABLE events ADD CONSTRAINT events_capacity_positive CHECK (capacity > 0)');
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('events');
